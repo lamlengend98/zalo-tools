@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>openzca — Rời nhóm hàng loạt</title>
+    <style>
+        :root {
+            --bg: #0b0d0f;
+            --panel: #14171a;
+            --panel-raised: #1a1e22;
+            --border: #262b30;
+            --text: #d9dee2;
+            --text-dim: #7c868e;
+            --amber: #e8a33d;
+            --amber-dim: #a97a35;
+            --green: #6fbf73;
+            --red: #d9695f;
+            --mono: "SFMono-Regular", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+            --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 18px 28px;
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .brand .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--amber);
+            display: inline-block;
+            box-shadow: 0 0 8px var(--amber);
+        }
+
+        .brand h1 {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin: 0;
+            font-family: var(--mono);
+        }
+
+        .brand .sub {
+            color: var(--text-dim);
+            font-size: 12px;
+            font-family: var(--mono);
+        }
+
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-family: var(--mono);
+            color: var(--text-dim);
+        }
+
+        .auth-status .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-dim);
+            display: inline-block;
+        }
+
+        .auth-status .status-dot.online {
+            background: var(--green);
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        .auth-status .status-dot.offline {
+            background: var(--red);
+            box-shadow: 0 0 6px var(--red);
+        }
+
+        main {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 24px 28px 80px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .toolbar input[type="text"] {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            flex: 1;
+            min-width: 160px;
+        }
+
+        .toolbar input[type="text"]:focus {
+            outline: none;
+            border-color: var(--amber-dim);
+        }
+
+        button {
+            font-family: var(--sans);
+            font-size: 13px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            color: var(--text);
+            padding: 8px 14px;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        button:hover {
+            border-color: var(--amber-dim);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        button.primary {
+            background: var(--amber);
+            border-color: var(--amber);
+            color: #1b1305;
+            font-weight: 600;
+        }
+
+        button.primary:hover {
+            background: #f0af4c;
+        }
+
+        button.ghost {
+            background: transparent;
+        }
+
+        .status-line {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-bottom: 14px;
+            min-height: 16px;
+        }
+
+        .status-line.error {
+            color: var(--red);
+        }
+
+        .group-list {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .group-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel);
+            user-select: none;
+            cursor: pointer;
+        }
+
+        .group-row:last-child {
+            border-bottom: none;
+        }
+
+        .group-row:hover {
+            background: var(--panel-raised);
+        }
+
+        .group-row.selected {
+            background: #21190a;
+        }
+
+        .group-row input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--amber);
+            flex-shrink: 0;
+        }
+
+        .group-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .group-name {
+            font-size: 13.5px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .group-meta {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .tags-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
+
+        .tag-chip {
+            font-family: var(--mono);
+            font-size: 10.5px;
+            background: #241c0c;
+            color: var(--amber);
+            border: 1px solid #3a2c10;
+            padding: 1px 7px;
+            border-radius: 10px;
+        }
+
+        .tag-edit-btn {
+            font-size: 11px;
+            color: var(--text-dim);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px 6px;
+            flex-shrink: 0;
+        }
+
+        .tag-edit-btn:hover {
+            color: var(--amber);
+        }
+
+        .empty-state {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+
+        .action-bar {
+            position: sticky;
+            bottom: 0;
+            margin-top: 18px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .action-bar .count {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .action-bar .spacer {
+            flex: 1;
+        }
+
+        .delay-fields {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11.5px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+
+        .delay-fields input {
+            width: 56px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 11.5px;
+        }
+
+        label.checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11.5px;
+            color: var(--text-dim);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--panel-raised);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            width: 320px;
+        }
+
+        .modal.modal-wide {
+            width: 460px;
+        }
+
+        .modal h3 {
+            margin: 0 0 4px;
+            font-size: 14px;
+        }
+
+        .modal .modal-sub {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-bottom: 14px;
+            font-family: var(--mono);
+        }
+
+        .modal input[type="text"] {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .login-log {
+            background: #08090a;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 11.5px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            max-height: 320px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+            color: var(--text);
+        }
+
+        .log-panel {
+            margin-top: 18px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #08090a;
+            display: none;
+        }
+
+        .log-panel.open {
+            display: block;
+        }
+
+        .log-panel-header {
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--mono);
+            font-size: 11.5px;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .log-lines {
+            max-height: 260px;
+            overflow-y: auto;
+            padding: 10px 14px;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.7;
+        }
+
+        .log-line.ok {
+            color: var(--green);
+        }
+
+        .log-line.error {
+            color: var(--red);
+        }
+
+        .log-line.dry {
+            color: var(--text-dim);
+        }
+
+        .log-line.info {
+            color: var(--amber);
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="brand">
+            <span class="dot"></span>
+            <h1>openzca / leave-groups</h1>
+            <span class="sub">web console</span>
+        </div>
+        <div class="auth-status" id="authStatus">
+            <span class="status-dot" id="authDot"></span>
+            <span id="authText">đang kiểm tra...</span>
+            <button id="loginBtn" class="primary" style="margin-left: 6px;">Quét QR đăng nhập Zalo</button>
+            <button id="logoutBtn" class="ghost" style="display:none;">Đăng xuất Zalo</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="toolbar">
+            <input type="text" id="nameFilter" placeholder="Lọc theo tên nhóm..." />
+            <input type="text" id="tagFilter" placeholder="Lọc theo tag (vd: rác, spam)..." />
+            <button id="selectAllBtn" class="ghost">Chọn tất cả</button>
+            <button id="deselectAllBtn" class="ghost">Bỏ chọn</button>
+        </div>
+
+        <div class="status-line" id="statusLine">Đang kiểm tra đăng nhập...</div>
+        <div class="status-line" style="margin-top: -10px;">Mẹo: giữ Shift rồi click để chọn nhiều nhóm liên tiếp.</div>
+
+        <div class="group-list" id="groupList"></div>
+
+        <div class="action-bar">
+            <span class="count" id="selectedCount">0 nhóm được chọn</span>
+            <div class="spacer"></div>
+            <div class="delay-fields">
+                <span>delay</span>
+                <input type="number" id="minDelay" value="2000" />
+                <span>–</span>
+                <input type="number" id="maxDelay" value="4000" />
+                <span>ms</span>
+            </div>
+            <label class="checkbox-label">
+                <input type="checkbox" id="dryRunCheckbox" />
+                dry-run
+            </label>
+            <button id="leaveBtn" class="primary" disabled>Rời các nhóm đã chọn</button>
+        </div>
+
+        <div class="log-panel" id="logPanel">
+            <div class="log-panel-header">
+                <span>Tiến trình</span>
+                <span id="logSummary"></span>
+            </div>
+            <div class="log-lines" id="logLines"></div>
+        </div>
+    </main>
+
+    <div class="modal-overlay" id="tagModalOverlay">
+        <div class="modal">
+            <h3 id="tagModalTitle">Gán tag</h3>
+            <div class="modal-sub" id="tagModalGroupName"></div>
+            <input type="text" id="tagModalInput" placeholder="tag1, tag2, ..." />
+            <div class="modal-actions">
+                <button class="ghost" id="tagModalCancel">Huỷ</button>
+                <button class="primary" id="tagModalSave">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="loginModalOverlay">
+        <div class="modal modal-wide">
+            <h3>Đăng nhập Zalo</h3>
+            <div class="modal-sub">Quét mã QR hiện bên dưới bằng app Zalo trên điện thoại.</div>
+            <div class="login-log" id="loginLog">Đang khởi động...</div>
+            <div class="modal-actions">
+                <button class="ghost" id="loginModalClose">Đóng</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            groups: [],
+            selected: new Set(),
+            tagModalGroupId: null,
+            lastClickedId: null,
+        };
+
+        const el = {
+            statusLine: document.getElementById("statusLine"),
+            groupList: document.getElementById("groupList"),
+            nameFilter: document.getElementById("nameFilter"),
+            tagFilter: document.getElementById("tagFilter"),
+            selectedCount: document.getElementById("selectedCount"),
+            leaveBtn: document.getElementById("leaveBtn"),
+            minDelay: document.getElementById("minDelay"),
+            maxDelay: document.getElementById("maxDelay"),
+            dryRunCheckbox: document.getElementById("dryRunCheckbox"),
+            logPanel: document.getElementById("logPanel"),
+            logLines: document.getElementById("logLines"),
+            logSummary: document.getElementById("logSummary"),
+            tagModalOverlay: document.getElementById("tagModalOverlay"),
+            tagModalGroupName: document.getElementById("tagModalGroupName"),
+            tagModalInput: document.getElementById("tagModalInput"),
+            tagModalSave: document.getElementById("tagModalSave"),
+            tagModalCancel: document.getElementById("tagModalCancel"),
+            selectAllBtn: document.getElementById("selectAllBtn"),
+            deselectAllBtn: document.getElementById("deselectAllBtn"),
+            authDot: document.getElementById("authDot"),
+            authText: document.getElementById("authText"),
+            loginBtn: document.getElementById("loginBtn"),
+            logoutBtn: document.getElementById("logoutBtn"),
+            loginModalOverlay: document.getElementById("loginModalOverlay"),
+            loginLog: document.getElementById("loginLog"),
+            loginModalClose: document.getElementById("loginModalClose"),
+        };
+
+        async function loadGroups() {
+            el.statusLine.textContent = "Đang tải danh sách nhóm...";
+            el.statusLine.classList.remove("error");
+            try {
+                const res = await fetch("/api/groups");
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
+                state.groups = data.groups;
+                state.selected.clear();
+                el.statusLine.textContent = `${data.groups.length} nhóm.`;
+                render();
+            } catch (err) {
+                el.statusLine.textContent = `Chưa có dữ liệu — hãy bấm "Quét QR đăng nhập Zalo" ở góc trên trước.`;
+                el.statusLine.classList.add("error");
+                el.groupList.innerHTML = "";
+            }
+        }
+
+        function getFiltered() {
+            const nameKw = el.nameFilter.value.trim().toLowerCase();
+            const tagKw = el.tagFilter.value.trim().toLowerCase();
+            const tagList = tagKw.split(",").map((t) => t.trim()).filter(Boolean);
+
+            return state.groups.filter((g) => {
+                const nameOk = !nameKw || g.name.toLowerCase().includes(nameKw);
+                const tagOk = tagList.length === 0 || tagList.some((t) => g.tags.includes(t));
+                return nameOk && tagOk;
+            });
+        }
+
+        function render() {
+            const filtered = getFiltered();
+            if (filtered.length === 0) {
+                el.groupList.innerHTML = `<div class="empty-state">Không có nhóm nào khớp bộ lọc.</div>`;
+            } else {
+                el.groupList.innerHTML = filtered
+                    .map((g) => {
+                        const isSelected = state.selected.has(g.id);
+                        const memberInfo = g.memberCount ? `${g.memberCount} thành viên · ` : "";
+                        const tagsHtml = g.tags.length
+                            ? `<div class="tags-row">${g.tags.map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("")}</div>`
+                            : "";
+                        return `
+            <div class="group-row ${isSelected ? "selected" : ""}" data-id="${g.id}">
+              <input type="checkbox" data-role="select" ${isSelected ? "checked" : ""} />
+              <div class="group-main">
+                <div class="group-name">${escapeHtml(g.name)}</div>
+                <div class="group-meta">${memberInfo}id: ${g.id}</div>
+                ${tagsHtml}
+              </div>
+              <button class="tag-edit-btn" data-role="edit-tag">+ tag</button>
+            </div>
+          `;
+                    })
+                    .join("");
+            }
+            updateSelectedCount();
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, (c) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+            }[c]));
+        }
+
+        function updateSelectedCount() {
+            const n = state.selected.size;
+            el.selectedCount.textContent = `${n} nhóm được chọn`;
+            el.leaveBtn.disabled = n === 0;
+        }
+
+        el.groupList.addEventListener("click", (e) => {
+            const row = e.target.closest(".group-row");
+            if (!row) return;
+            const groupId = row.dataset.id;
+
+            if (e.target.dataset.role === "edit-tag") {
+                openTagModal(groupId);
+                return;
+            }
+
+            const isCheckboxClick = e.target.dataset.role === "select";
+
+            if (e.shiftKey && state.lastClickedId && state.lastClickedId !== groupId) {
+                e.preventDefault();
+                selectRange(state.lastClickedId, groupId);
+                state.lastClickedId = groupId;
+                return;
+            }
+
+            if (isCheckboxClick) {
+                toggleSelect(groupId, e.target.checked);
+            } else {
+                const checkbox = row.querySelector('input[data-role="select"]');
+                const newVal = !checkbox.checked;
+                checkbox.checked = newVal;
+                toggleSelect(groupId, newVal);
+            }
+
+            state.lastClickedId = groupId;
+        });
+
+        function toggleSelect(groupId, checked) {
+            if (checked) state.selected.add(groupId);
+            else state.selected.delete(groupId);
+            const row = el.groupList.querySelector(`.group-row[data-id="${cssEscape(groupId)}"]`);
+            if (row) row.classList.toggle("selected", checked);
+            updateSelectedCount();
+        }
+
+        function cssEscape(id) {
+            return String(id).replace(/["\\]/g, "\\$&");
+        }
+
+        function selectAllFiltered() {
+            const ids = getFiltered().map((g) => g.id);
+            ids.forEach((id) => state.selected.add(id));
+            render();
+        }
+
+        function deselectAll() {
+            state.selected.clear();
+            render();
+        }
+
+        el.selectAllBtn.addEventListener("click", selectAllFiltered);
+        el.deselectAllBtn.addEventListener("click", deselectAll);
+
+        function selectRange(fromId, toId) {
+            const ids = getFiltered().map((g) => g.id);
+            const fromIdx = ids.indexOf(fromId);
+            const toIdx = ids.indexOf(toId);
+            if (fromIdx === -1 || toIdx === -1) {
+                toggleSelect(toId, true);
+                return;
+            }
+            const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+            for (let i = start; i <= end; i++) {
+                const id = ids[i];
+                state.selected.add(id);
+                const row = el.groupList.querySelector(`.group-row[data-id="${cssEscape(id)}"]`);
+                if (row) {
+                    row.classList.add("selected");
+                    const cb = row.querySelector('input[data-role="select"]');
+                    if (cb) cb.checked = true;
+                }
+            }
+            updateSelectedCount();
+        }
+
+        el.nameFilter.addEventListener("input", render);
+        el.tagFilter.addEventListener("input", render);
+
+        function openTagModal(groupId) {
+            const g = state.groups.find((x) => x.id === groupId);
+            state.tagModalGroupId = groupId;
+            el.tagModalGroupName.textContent = g ? `${g.name} (id: ${g.id})` : groupId;
+            el.tagModalInput.value = g && g.tags.length ? g.tags.join(", ") : "";
+            el.tagModalOverlay.classList.add("open");
+            el.tagModalInput.focus();
+        }
+
+        function closeTagModal() {
+            el.tagModalOverlay.classList.remove("open");
+            state.tagModalGroupId = null;
+        }
+
+        el.tagModalCancel.addEventListener("click", closeTagModal);
+        el.tagModalOverlay.addEventListener("click", (e) => {
+            if (e.target === el.tagModalOverlay) closeTagModal();
+        });
+
+        el.tagModalSave.addEventListener("click", async () => {
+            const groupId = state.tagModalGroupId;
+            if (!groupId) return;
+            const tagList = el.tagModalInput.value.split(",").map((t) => t.trim()).filter(Boolean);
+            try {
+                const res = await fetch("/api/tags", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ groupId, tags: tagList, action: "set" }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
+                const g = state.groups.find((x) => x.id === groupId);
+                if (g) g.tags = data.tags;
+                closeTagModal();
+                render();
+            } catch (err) {
+                alert(`Lỗi khi lưu tag: ${err.message}`);
+            }
+        });
+
+        el.leaveBtn.addEventListener("click", () => {
+            const ids = [...state.selected];
+            if (ids.length === 0) return;
+
+            const names = ids.map((id) => {
+                const g = state.groups.find((x) => x.id === id);
+                return g ? g.name : id;
+            });
+
+            const dryRun = el.dryRunCheckbox.checked;
+            const confirmMsg = dryRun
+                ? `Xem trước (dry-run) việc rời ${ids.length} nhóm?`
+                : `Xác nhận rời ${ids.length} nhóm sau?\n\n${names.join("\n")}`;
+
+            if (!confirm(confirmMsg)) return;
+            startLeaveStream(ids, dryRun);
+        });
+
+        function startLeaveStream(ids, dryRun) {
+            el.logPanel.classList.add("open");
+            el.logLines.innerHTML = "";
+            el.logSummary.textContent = `0 / ${ids.length}`;
+            el.leaveBtn.disabled = true;
+
+            const params = new URLSearchParams({
+                groupIds: ids.join(","),
+                minDelay: el.minDelay.value || "2000",
+                maxDelay: el.maxDelay.value || "4000",
+                dryRun: dryRun ? "1" : "0",
+            });
+
+            const es = new EventSource(`/api/leave-stream?${params.toString()}`);
+            let done = 0;
+
+            es.onmessage = (evt) => {
+                const data = JSON.parse(evt.data);
+                if (data.done) {
+                    appendLog("info", "Hoàn tất.");
+                    es.close();
+                    el.leaveBtn.disabled = state.selected.size === 0;
+                    loadGroups();
+                    return;
+                }
+                const g = state.groups.find((x) => x.id === data.groupId);
+                const label = g ? g.name : data.groupId;
+                done += 1;
+                el.logSummary.textContent = `${done} / ${ids.length}`;
+
+                if (data.status === "ok") {
+                    appendLog("ok", `✔ Đã rời: ${label} (${data.groupId})`);
+                    state.selected.delete(data.groupId);
+                } else if (data.status === "dry-run") {
+                    appendLog("dry", `[dry-run] Sẽ rời: ${label} (${data.groupId})`);
+                } else if (data.status === "error") {
+                    appendLog("error", `✘ Lỗi khi rời ${label} (${data.groupId}): ${data.message}`);
+                }
+            };
+
+            es.onerror = () => {
+                appendLog("error", "Mất kết nối stream (kiểm tra server có đang chạy không).");
+                es.close();
+                el.leaveBtn.disabled = state.selected.size === 0;
+            };
+        }
+
+        function appendLog(type, text) {
+            const line = document.createElement("div");
+            line.className = `log-line ${type}`;
+            line.textContent = text;
+            el.logLines.appendChild(line);
+            el.logLines.scrollTop = el.logLines.scrollHeight;
+        }
+
+        async function checkAuthStatus() {
+            el.authText.textContent = "đang kiểm tra...";
+            el.authDot.className = "status-dot";
+            try {
+                const res = await fetch("/api/auth/status");
+                const data = await res.json();
+                setAuthUI(!!data.loggedIn, data.user);
+            } catch (err) {
+                setAuthUI(false, null);
+            }
+        }
+
+        function setAuthUI(loggedIn, user) {
+            el.authDot.className = `status-dot ${loggedIn ? "online" : "offline"}`;
+            if (loggedIn) {
+                el.authText.textContent = user && user.name ? user.name : "đã đăng nhập";
+            } else {
+                el.authText.textContent = "chưa đăng nhập";
+            }
+            el.loginBtn.style.display = loggedIn ? "none" : "inline-block";
+            el.logoutBtn.style.display = loggedIn ? "inline-block" : "none";
+        }
+
+        el.loginBtn.addEventListener("click", startLogin);
+
+        function startLogin() {
+            el.loginLog.textContent = "";
+            el.loginModalOverlay.classList.add("open");
+
+            const es = new EventSource("/api/auth/login-stream");
+
+            es.onmessage = (evt) => {
+                const data = JSON.parse(evt.data);
+                if (data.line) {
+                    el.loginLog.textContent += data.line;
+                    el.loginLog.scrollTop = el.loginLog.scrollHeight;
+                }
+                if (data.done) {
+                    es.close();
+                    el.loginLog.textContent += data.success
+                        ? "\n\n✔ Đăng nhập thành công."
+                        : "\n\n✘ Đăng nhập không thành công hoặc đã bị huỷ.";
+                    el.loginLog.scrollTop = el.loginLog.scrollHeight;
+                    checkAuthStatus();
+                    if (data.success) loadGroups();
+                }
+            };
+
+            es.onerror = () => {
+                el.loginLog.textContent += "\n\nMất kết nối stream đăng nhập.";
+                es.close();
+            };
+        }
+
+        el.loginModalClose.addEventListener("click", () => {
+            el.loginModalOverlay.classList.remove("open");
+        });
+        el.loginModalOverlay.addEventListener("click", (e) => {
+            if (e.target === el.loginModalOverlay) el.loginModalOverlay.classList.remove("open");
+        });
+
+        el.logoutBtn.addEventListener("click", async () => {
+            if (!confirm("Đăng xuất tài khoản Zalo hiện tại?")) return;
+            try {
+                const res = await fetch("/api/auth/logout", { method: "POST" });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
+                setAuthUI(false);
+                state.groups = [];
+                state.selected.clear();
+                render();
+                el.statusLine.textContent = "Đã đăng xuất Zalo.";
+            } catch (err) {
+                alert(`Lỗi khi đăng xuất: ${err.message}`);
+            }
+        });
+
+        checkAuthStatus();
+        loadGroups();
+    </script>
+
+</body>
+
+</html>

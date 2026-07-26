@@ -1,0 +1,12 @@
+{
+    "name": "openzca-leave-groups-web",
+    "version": "1.0.0",
+    "description": "Giao diện web local để chọn và rời nhiều nhóm Zalo cùng lúc, dùng openzca làm backend.",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "express": "^4.19.2"
+    }
+}
