@@ -116,11 +116,22 @@ function saveTags(profile, tags) {
 
 // ---------------- Gọi openzca CLI ----------------
 
+// Dùng binary cài local trong node_modules/.bin (qua dependency "openzca" trong
+// package.json) thay vì kỳ vọng lệnh `openzca` có sẵn global trong PATH.
+// Lý do: nhiều nền tảng deploy (Render, Railway...) không cho quyền ghi vào
+// thư mục npm global khi build (`npm install -g` sẽ lỗi ENOENT/permission).
+const OPENZCA_BIN = path.join(
+    __dirname,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "openzca.cmd" : "openzca"
+);
+
 function runOpenzca(cliArgs, profile) {
     return new Promise((resolve, reject) => {
         const finalArgs = ["--profile", profile, ...cliArgs];
         execFile(
-            "openzca",
+            OPENZCA_BIN,
             finalArgs,
             { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
             (err, stdout, stderr) => {
@@ -130,6 +141,38 @@ function runOpenzca(cliArgs, profile) {
         );
     });
 }
+
+// openzca yêu cầu 1 profile phải được tạo trước bằng `account add <name>`
+// trước khi dùng được với `--profile <name>` cho bất kỳ lệnh nào khác.
+// Hàm này tự tạo profile trong lần đầu tiên gặp (idempotent, im lặng nếu đã
+// tồn tại), hoàn toàn ẩn với người dùng — họ không cần biết khái niệm này.
+const ensuredProfiles = new Set();
+
+function ensureProfileExists(profile) {
+    return new Promise((resolve, reject) => {
+        if (ensuredProfiles.has(profile)) return resolve();
+        execFile(
+            OPENZCA_BIN,
+            ["account", "add", profile],
+            { encoding: "utf8" },
+            (err, stdout, stderr) => {
+                const alreadyExists = /already exists/i.test(stderr || "") || /already exists/i.test((err && err.message) || "");
+                if (err && !alreadyExists) {
+                    return reject(new Error(stderr || err.message));
+                }
+                ensuredProfiles.add(profile);
+                resolve();
+            }
+        );
+    });
+}
+
+// Bọc runOpenzca gốc để luôn đảm bảo profile tồn tại trước khi chạy lệnh thật
+const rawRunOpenzca = runOpenzca;
+runOpenzca = async function (cliArgs, profile) {
+    await ensureProfileExists(profile);
+    return rawRunOpenzca(cliArgs, profile);
+};
 
 function normalizeGroups(raw) {
     const groups = JSON.parse(raw);
@@ -230,7 +273,7 @@ app.get("/api/auth/status", async (req, res) => {
     }
 });
 
-app.get("/api/auth/login-stream", (req, res) => {
+app.get("/api/auth/login-stream", async (req, res) => {
     const profile = req.session.profile;
     const args = ["--profile", profile, ...AUTH_LOGIN_ARGS];
 
@@ -241,7 +284,15 @@ app.get("/api/auth/login-stream", (req, res) => {
     });
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const child = spawn("openzca", args, { encoding: "utf8" });
+    try {
+        await ensureProfileExists(profile);
+    } catch (err) {
+        send({ line: `Không tạo được profile: ${err.message}` });
+        send({ done: true, success: false });
+        return res.end();
+    }
+
+    const child = spawn(OPENZCA_BIN, args, { encoding: "utf8" });
 
     child.stdout.on("data", (chunk) => send({ line: chunk.toString() }));
     child.stderr.on("data", (chunk) => send({ line: chunk.toString() }));
