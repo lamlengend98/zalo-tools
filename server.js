@@ -120,12 +120,13 @@ function saveTags(profile, tags) {
 // package.json) thay vì kỳ vọng lệnh `openzca` có sẵn global trong PATH.
 // Lý do: nhiều nền tảng deploy (Render, Railway...) không cho quyền ghi vào
 // thư mục npm global khi build (`npm install -g` sẽ lỗi ENOENT/permission).
-const OPENZCA_BIN = path.join(
+const localOpenzcaBin = path.join(
     __dirname,
     "node_modules",
     ".bin",
     process.platform === "win32" ? "openzca.cmd" : "openzca"
 );
+const OPENZCA_BIN = fs.existsSync(localOpenzcaBin) ? localOpenzcaBin : "openzca";
 
 function runOpenzca(cliArgs, profile) {
     return new Promise((resolve, reject) => {
