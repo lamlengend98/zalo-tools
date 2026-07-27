@@ -512,6 +512,9 @@
         <div class="modal modal-wide">
             <h3>Đăng nhập Zalo</h3>
             <div class="modal-sub">Quét mã QR hiện bên dưới bằng app Zalo trên điện thoại.</div>
+            <div id="qrImageContainer" style="text-align: center; margin: 16px 0; display: none;">
+                <img id="qrImage" src="" alt="Mã QR Zalo" style="width: 220px; height: 220px; border-radius: 12px; border: 3px solid #e8a33d; background: #ffffff; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);" />
+            </div>
             <div class="login-log" id="loginLog">Đang khởi động...</div>
             <div class="modal-actions">
                 <button class="ghost" id="loginModalClose">Đóng</button>
@@ -554,6 +557,8 @@
             loginModalOverlay: document.getElementById("loginModalOverlay"),
             loginLog: document.getElementById("loginLog"),
             loginModalClose: document.getElementById("loginModalClose"),
+            qrImageContainer: document.getElementById("qrImageContainer"),
+            qrImage: document.getElementById("qrImage"),
         };
 
         async function loadGroups() {
@@ -849,12 +854,20 @@
 
         function startLogin() {
             el.loginLog.textContent = "";
+            if (el.qrImageContainer) el.qrImageContainer.style.display = "none";
+            if (el.qrImage) el.qrImage.src = "";
             el.loginModalOverlay.classList.add("open");
 
             const es = new EventSource("/api/auth/login-stream");
 
             es.onmessage = (evt) => {
                 const data = JSON.parse(evt.data);
+                if (data.qrImage) {
+                    if (el.qrImage && el.qrImageContainer) {
+                        el.qrImage.src = data.qrImage;
+                        el.qrImageContainer.style.display = "block";
+                    }
+                }
                 if (data.line) {
                     el.loginLog.textContent += data.line;
                     el.loginLog.scrollTop = el.loginLog.scrollHeight;

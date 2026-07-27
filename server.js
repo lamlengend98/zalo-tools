@@ -49,9 +49,11 @@ app.use(express.json());
 const APP_DATA_DIR = path.join(os.homedir(), ".openzca-leave-groups");
 const SESSION_SECRET_FILE = path.join(APP_DATA_DIR, "session-secret");
 const TAGS_DIR = path.join(APP_DATA_DIR, "tags");
+const QRS_DIR = path.join(APP_DATA_DIR, "qrs");
 
 fs.mkdirSync(APP_DATA_DIR, { recursive: true });
 fs.mkdirSync(TAGS_DIR, { recursive: true });
+fs.mkdirSync(QRS_DIR, { recursive: true });
 
 function getOrCreateSessionSecret() {
     try {
@@ -276,7 +278,13 @@ app.get("/api/auth/status", async (req, res) => {
 
 app.get("/api/auth/login-stream", async (req, res) => {
     const profile = req.session.profile;
-    const args = ["--profile", profile, ...AUTH_LOGIN_ARGS];
+    const qrFilePath = path.join(QRS_DIR, `${profile}.png`);
+
+    try {
+        if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath);
+    } catch (_) {}
+
+    const args = ["--profile", profile, ...AUTH_LOGIN_ARGS, "--qr-path", qrFilePath];
 
     res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -293,23 +301,49 @@ app.get("/api/auth/login-stream", async (req, res) => {
         return res.end();
     }
 
-    const child = spawn(OPENZCA_BIN, args, { encoding: "utf8" });
+    const child = spawn(OPENZCA_BIN, args, {
+        encoding: "utf8",
+        env: { ...process.env, OPENZCA_QR_AUTO_OPEN: "0" },
+    });
+
+    let lastSentBase64 = null;
+    const checkQrInterval = setInterval(() => {
+        if (fs.existsSync(qrFilePath)) {
+            try {
+                const base64 = fs.readFileSync(qrFilePath).toString("base64");
+                if (base64 && base64 !== lastSentBase64) {
+                    lastSentBase64 = base64;
+                    send({ qrImage: `data:image/png;base64,${base64}` });
+                }
+            } catch (_) {}
+        }
+    }, 500);
+
+    const cleanup = () => {
+        clearInterval(checkQrInterval);
+        try {
+            if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath);
+        } catch (_) {}
+    };
 
     child.stdout.on("data", (chunk) => send({ line: chunk.toString() }));
     child.stderr.on("data", (chunk) => send({ line: chunk.toString() }));
 
     child.on("error", (err) => {
+        cleanup();
         send({ line: `Không chạy được lệnh openzca: ${err.message}` });
         send({ done: true, success: false });
         res.end();
     });
 
     child.on("close", (code) => {
+        cleanup();
         send({ done: true, success: code === 0 });
         res.end();
     });
 
     req.on("close", () => {
+        cleanup();
         if (!child.killed) child.kill();
     });
 });
