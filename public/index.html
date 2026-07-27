@@ -25,6 +25,11 @@
             box-sizing: border-box;
         }
 
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         body {
             margin: 0;
             background: var(--bg);
@@ -512,11 +517,20 @@
         <div class="modal modal-wide">
             <h3>Đăng nhập Zalo</h3>
             <div class="modal-sub">Quét mã QR hiện bên dưới bằng app Zalo trên điện thoại.</div>
+            
+            <div id="qrLoadingState" style="text-align: center; margin: 18px 0; color: var(--amber); font-family: var(--mono); font-size: 13px;">
+                <div style="display: inline-block; width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--amber); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px;"></div>
+                <span>Đang tạo mã QR đăng nhập... Vui lòng đợi trong giây lát.</span>
+            </div>
+
             <div id="qrImageContainer" style="text-align: center; margin: 16px 0; display: none;">
                 <img id="qrImage" src="" alt="Mã QR Zalo" style="width: 220px; height: 220px; border-radius: 12px; border: 3px solid #e8a33d; background: #ffffff; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);" />
             </div>
+            
             <div class="login-log" id="loginLog">Đang khởi động...</div>
-            <div class="modal-actions">
+            
+            <div class="modal-actions" style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="primary" id="reloadQrBtn">🔄 Tải lại QR</button>
                 <button class="ghost" id="loginModalClose">Đóng</button>
             </div>
         </div>
@@ -559,6 +573,8 @@
             loginModalClose: document.getElementById("loginModalClose"),
             qrImageContainer: document.getElementById("qrImageContainer"),
             qrImage: document.getElementById("qrImage"),
+            qrLoadingState: document.getElementById("qrLoadingState"),
+            reloadQrBtn: document.getElementById("reloadQrBtn"),
         };
 
         async function loadGroups() {
@@ -852,17 +868,27 @@
 
         el.loginBtn.addEventListener("click", startLogin);
 
+        let activeLoginEventSource = null;
+
         function startLogin() {
-            el.loginLog.textContent = "";
+            if (activeLoginEventSource) {
+                activeLoginEventSource.close();
+                activeLoginEventSource = null;
+            }
+
+            el.loginLog.textContent = "Đang tạo tiến trình đăng nhập...\n";
+            if (el.qrLoadingState) el.qrLoadingState.style.display = "block";
             if (el.qrImageContainer) el.qrImageContainer.style.display = "none";
             if (el.qrImage) el.qrImage.src = "";
             el.loginModalOverlay.classList.add("open");
 
             const es = new EventSource("/api/auth/login-stream");
+            activeLoginEventSource = es;
 
             es.onmessage = (evt) => {
                 const data = JSON.parse(evt.data);
                 if (data.qrImage) {
+                    if (el.qrLoadingState) el.qrLoadingState.style.display = "none";
                     if (el.qrImage && el.qrImageContainer) {
                         el.qrImage.src = data.qrImage;
                         el.qrImageContainer.style.display = "block";
@@ -874,6 +900,8 @@
                 }
                 if (data.done) {
                     es.close();
+                    activeLoginEventSource = null;
+                    if (el.qrLoadingState) el.qrLoadingState.style.display = "none";
                     el.loginLog.textContent += data.success
                         ? "\n\n✔ Đăng nhập thành công."
                         : "\n\n✘ Đăng nhập không thành công hoặc đã bị huỷ.";
@@ -884,12 +912,25 @@
             };
 
             es.onerror = () => {
-                el.loginLog.textContent += "\n\nMất kết nối stream đăng nhập.";
+                if (el.qrLoadingState) el.qrLoadingState.style.display = "none";
+                el.loginLog.textContent += "\n\n⚠️ Mất kết nối stream đăng nhập. Nhấn nút 'Tải lại QR' ở bên dưới để tạo lại mã mới.";
+                el.loginLog.scrollTop = el.loginLog.scrollHeight;
                 es.close();
+                activeLoginEventSource = null;
             };
         }
 
+        if (el.reloadQrBtn) {
+            el.reloadQrBtn.addEventListener("click", () => {
+                startLogin();
+            });
+        }
+
         el.loginModalClose.addEventListener("click", () => {
+            if (activeLoginEventSource) {
+                activeLoginEventSource.close();
+                activeLoginEventSource = null;
+            }
             el.loginModalOverlay.classList.remove("open");
         });
         el.loginModalOverlay.addEventListener("click", (e) => {
