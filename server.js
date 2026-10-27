@@ -13,7 +13,6 @@
  *     bao giờ lấy profile từ input do client gửi lên, nên 1 người không thể
  *     xem/thao tác được nhóm của người khác (mỗi trình duyệt = 1 phiên riêng
  *     = 1 tài khoản Zalo riêng).
- *   - Tag của mỗi người lưu riêng tại ~/.openzca-leave-groups/tags/<profile>.json
  *
  * ⚠️ BẮT BUỘC khi deploy cho nhiều người qua mạng thật (không phải chỉ
  * localhost): phải chạy sau HTTPS (reverse proxy như Caddy/Nginx/Cloudflare,
@@ -34,6 +33,7 @@ const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
+const { Zalo } = require("zca-js");
 
 require("dotenv").config();
 
@@ -48,11 +48,9 @@ app.use(express.json());
 // --- Thư mục dữ liệu của app (tách biệt với dữ liệu openzca) ---
 const APP_DATA_DIR = path.join(os.homedir(), ".openzca-leave-groups");
 const SESSION_SECRET_FILE = path.join(APP_DATA_DIR, "session-secret");
-const TAGS_DIR = path.join(APP_DATA_DIR, "tags");
 const QRS_DIR = path.join(APP_DATA_DIR, "qrs");
 
 fs.mkdirSync(APP_DATA_DIR, { recursive: true });
-fs.mkdirSync(TAGS_DIR, { recursive: true });
 fs.mkdirSync(QRS_DIR, { recursive: true });
 
 function getOrCreateSessionSecret() {
@@ -97,24 +95,7 @@ const AUTH_LOGOUT_ARGS = ["auth", "logout"];
 const AUTH_STATUS_ARGS = ["auth", "status"];
 const ME_INFO_ARGS = ["me", "info"];
 
-// ---------------- Tag storage (mỗi người 1 file riêng theo profile) ----------------
 
-function tagsFilePath(profile) {
-    // profile được sinh tự động (chữ/số/gạch ngang) nên an toàn để dùng làm tên file
-    return path.join(TAGS_DIR, `${profile}.json`);
-}
-
-function loadTags(profile) {
-    try {
-        return JSON.parse(fs.readFileSync(tagsFilePath(profile), "utf8"));
-    } catch (err) {
-        return {};
-    }
-}
-
-function saveTags(profile, tags) {
-    fs.writeFileSync(tagsFilePath(profile), JSON.stringify(tags, null, 2), "utf8");
-}
 
 // ---------------- Gọi openzca CLI ----------------
 
@@ -129,6 +110,111 @@ const localOpenzcaBin = path.join(
     process.platform === "win32" ? "openzca.cmd" : "openzca"
 );
 const OPENZCA_BIN = fs.existsSync(localOpenzcaBin) ? localOpenzcaBin : "openzca";
+
+// ---------------- GroupCacheManager (dùng zca-js trực tiếp, không spawn CLI) ----------------
+//
+// Mục tiêu: tách việc lấy group IDs (nhanh, 1 request) khỏi việc fetch chi
+// tiết (chậm, nhiều request). Chỉ fetch chi tiết cho trang đang xem.
+//
+// ~/.openzca/profiles/<profile>/credentials.json là file openzca lưu sau khi
+// đăng nhập QR — chính xác format `Credentials` của zca-js.
+
+const OPENZCA_HOME = process.env.OPENZCA_HOME
+    ? process.env.OPENZCA_HOME.trim()
+    : path.join(os.homedir(), ".openzca");
+
+// TTL để re-fetch danh sách IDs (10 phút)
+const GROUP_IDS_TTL_MS = 10 * 60 * 1000;
+// Batch size khi gọi getGroupInfo — 20 IDs/lần là an toàn theo thử nghiệm
+const GROUP_INFO_BATCH = 20;
+
+/**
+ * Cache per-profile:
+ * {
+ *   ids: string[] | null,      — danh sách tất cả group IDs (từ getAllGroups)
+ *   details: Map<id, Group>,   — chi tiết đã fetch
+ *   api: zca-js API | null,    — instance tái sử dụng
+ *   idsLoadedAt: number,       — timestamp khi fetch IDs lần cuối
+ * }
+ */
+const groupCacheMap = new Map();
+
+function getGroupCache(profile) {
+    if (!groupCacheMap.has(profile)) {
+        groupCacheMap.set(profile, {
+            ids: null,
+            details: new Map(),
+            api: null,
+            idsLoadedAt: 0,
+        });
+    }
+    return groupCacheMap.get(profile);
+}
+
+function openzca_credentialsPath(profile) {
+    return path.join(OPENZCA_HOME, "profiles", profile, "credentials.json");
+}
+
+async function getZcaApi(profile) {
+    const cache = getGroupCache(profile);
+    if (cache.api) return cache.api;
+
+    const credPath = openzca_credentialsPath(profile);
+    if (!fs.existsSync(credPath)) {
+        throw new Error(`Chưa đăng nhập Zalo (không tìm thấy credentials cho profile ${profile})`);
+    }
+    const credentials = JSON.parse(fs.readFileSync(credPath, "utf8"));
+    // Tạo instance Zalo mới và đăng nhập bằng credentials đã lưu
+    const api = await new Zalo().login(credentials);
+    cache.api = api;
+    return api;
+}
+
+async function ensureGroupIds(profile) {
+    const cache = getGroupCache(profile);
+    const now = Date.now();
+    if (cache.ids && (now - cache.idsLoadedAt) < GROUP_IDS_TTL_MS) {
+        return cache.ids;
+    }
+    const api = await getZcaApi(profile);
+    const resp = await api.getAllGroups();
+    cache.ids = Object.keys(resp.gridVerMap ?? {});
+    cache.idsLoadedAt = now;
+    return cache.ids;
+}
+
+async function fetchGroupDetails(profile, ids) {
+    if (!ids || ids.length === 0) return;
+    const cache = getGroupCache(profile);
+    const api = await getZcaApi(profile);
+    // Chia nhỏ thành batches
+    for (let i = 0; i < ids.length; i += GROUP_INFO_BATCH) {
+        const batch = ids.slice(i, i + GROUP_INFO_BATCH);
+        try {
+            const resp = await api.getGroupInfo(batch);
+            for (const [id, info] of Object.entries(resp.gridInfoMap ?? {})) {
+                cache.details.set(id, {
+                    id: info.groupId || id,
+                    name: info.name || "(không tên)",
+                    memberCount: info.totalMember ?? null,
+                });
+            }
+        } catch (err) {
+            // Ghi lỗi nhưng tiếp tục (không block toàn bộ request)
+            console.error(`[GroupCache] fetchGroupDetails batch lỗi:`, err.message);
+        }
+    }
+}
+
+function clearGroupCache(profile) {
+    if (groupCacheMap.has(profile)) {
+        const cache = groupCacheMap.get(profile);
+        cache.ids = null;
+        cache.details.clear();
+        cache.api = null;
+        cache.idsLoadedAt = 0;
+    }
+}
 
 function runOpenzca(cliArgs, profile) {
     return new Promise((resolve, reject) => {
@@ -203,50 +289,98 @@ function normalizeUser(raw) {
     };
 }
 
-// ---------------- API: danh sách nhóm (kèm tag), chỉ của phiên hiện tại ----------------
+// ---------------- API: danh sách nhóm — progressive cache ----------------
+// Query params:
+//   page  – trang hiện tại, bắt đầu từ 1 (mặc định: 1)
+//   limit – số nhóm mỗi trang (mặc định: 20, tối đa: 200)
+//   all   – nếu = "1" thì bỏ qua phân trang, trả về tất cả (dùng cho chọn/rời nhóm)
+//
+// Cơ chế:
+//   1. Lấy tất cả IDs nhanh qua zca-js getAllGroups (~300ms, 1 HTTP call)
+//   2. Chỉ fetch chi tiết cho 20 IDs của trang hiện tại (~600-800ms)
+//   3. Cache tích lũy: trang sau chỉ fetch những IDs chưa có
+//   4. Background prefetch trang tiếp theo (không block response)
 
 app.get("/api/groups", async (req, res) => {
     try {
         const profile = req.session.profile;
-        const raw = await runOpenzca(["group", "list", "--json"], profile);
-        const groups = normalizeGroups(raw);
-        const tags = loadTags(profile);
-        const withTags = groups.map((g) => ({ ...g, tags: tags[g.id] || [] }));
-        res.json({ groups: withTags });
+        await ensureProfileExists(profile);
+
+        // Fallback CLI cho all=1 (dùng bởi leave-stream nếu cần)
+        if (req.query.all === "1") {
+            const raw = await rawRunOpenzca(["group", "list", "--json"], profile);
+            const all = normalizeGroups(raw);
+            return res.json({
+                groups: all,
+                total: all.length,
+            });
+        }
+
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+
+        // Phase 1: lấy tất cả IDs (cached sau lần đầu)
+        const allIds = await ensureGroupIds(profile);
+        const totalItems = allIds.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+        const page = Math.min(Math.max(parseInt(req.query.page, 10) || 1, 1), totalPages);
+        const start = (page - 1) * limit;
+        const pageIds = allIds.slice(start, start + limit);
+
+        // Phase 2: fetch chi tiết cho IDs chưa có trong cache
+        const cache = getGroupCache(profile);
+        const missingIds = pageIds.filter((id) => !cache.details.has(id));
+        if (missingIds.length > 0) {
+            await fetchGroupDetails(profile, missingIds);
+        }
+
+        const pageGroups = pageIds.map((id) => {
+            return cache.details.get(id) || { id, name: "(đang tải...)", memberCount: null };
+        });
+
+        // Background: prefetch chi tiết trang tiếp theo (không await)
+        const nextStart = start + limit;
+        if (nextStart < allIds.length) {
+            const nextMissing = allIds
+                .slice(nextStart, nextStart + limit)
+                .filter((id) => !cache.details.has(id));
+            if (nextMissing.length > 0) {
+                fetchGroupDetails(profile, nextMissing).catch(() => { });
+            }
+        }
+
+        res.json({
+            groups: pageGroups,
+            pagination: {
+                page,
+                limit,
+                totalItems,
+                totalPages,
+                hasNext: page < totalPages,
+                hasPrev: page > 1,
+            },
+            meta: {
+                cachedDetails: cache.details.size,
+                totalIds: totalItems,
+            },
+        });
     } catch (err) {
+        // Nếu zca-js lỗi (chưa đăng nhập, session hết hạn), xóa api instance
+        // để lần sau retry login
+        if (err.message && err.message.includes("credentials")) {
+            clearGroupCache(req.session.profile);
+        }
         res.status(500).json({ error: err.message });
     }
 });
 
-app.get("/api/tags", (req, res) => {
-    res.json({ tags: loadTags(req.session.profile) });
-});
-
-app.post("/api/tags", (req, res) => {
-    const { groupId, tags: tagList, action } = req.body || {};
-    if (!groupId || !Array.isArray(tagList)) {
-        return res.status(400).json({ error: "Thiếu groupId hoặc tags[]" });
-    }
+// Xóa cache nhóm của profile hiện tại — client gọi khi muốn làm mới danh sách
+app.post("/api/groups/refresh", async (req, res) => {
     const profile = req.session.profile;
-    const tags = loadTags(profile);
-    const normalized = tagList.map((t) => String(t).trim().toLowerCase()).filter(Boolean);
-    const existing = new Set(tags[groupId] || []);
-
-    if (action === "remove") {
-        normalized.forEach((t) => existing.delete(t));
-    } else if (action === "set") {
-        existing.clear();
-        normalized.forEach((t) => existing.add(t));
-    } else {
-        normalized.forEach((t) => existing.add(t));
-    }
-
-    if (existing.size === 0) delete tags[groupId];
-    else tags[groupId] = [...existing];
-
-    saveTags(profile, tags);
-    res.json({ tags: tags[groupId] || [] });
+    clearGroupCache(profile);
+    res.json({ ok: true, message: "Cache đã được xóa. Trang tiếp theo sẽ tải lại từ Zalo." });
 });
+
+
 
 // ---------------- API: đăng nhập/đăng xuất Zalo qua QR, theo profile của session ----------------
 
@@ -282,7 +416,7 @@ app.get("/api/auth/login-stream", async (req, res) => {
 
     try {
         if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath);
-    } catch (_) {}
+    } catch (_) { }
 
     const args = ["--profile", profile, ...AUTH_LOGIN_ARGS, "--qr-path", qrFilePath];
 
@@ -315,7 +449,7 @@ app.get("/api/auth/login-stream", async (req, res) => {
                     lastSentBase64 = base64;
                     send({ qrImage: `data:image/png;base64,${base64}` });
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
     }, 500);
 
@@ -323,7 +457,7 @@ app.get("/api/auth/login-stream", async (req, res) => {
         clearInterval(checkQrInterval);
         try {
             if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath);
-        } catch (_) {}
+        } catch (_) { }
     };
 
     child.stdout.on("data", (chunk) => send({ line: chunk.toString() }));
@@ -350,8 +484,37 @@ app.get("/api/auth/login-stream", async (req, res) => {
 
 app.post("/api/auth/logout", async (req, res) => {
     try {
-        const out = await runOpenzca(AUTH_LOGOUT_ARGS, req.session.profile);
-        res.json({ ok: true, output: out });
+        const profile = req.session.profile;
+        if (profile) {
+            // Xóa in-memory cache
+            clearGroupCache(profile);
+            groupCacheMap.delete(profile);
+            ensuredProfiles.delete(profile);
+
+            // Xóa file QR tạm
+            const qrFilePath = path.join(QRS_DIR, `${profile}.png`);
+            try {
+                if (fs.existsSync(qrFilePath)) fs.unlinkSync(qrFilePath);
+            } catch (_) { }
+
+            // Gọi logout openzca để huỷ phiên
+            try {
+                await runOpenzca(AUTH_LOGOUT_ARGS, profile);
+            } catch (_) { }
+
+            // Xóa sạch file cache nhóm/bạn bè và credentials trong ~/.openzca/profiles/<profile>
+            const profileDir = path.join(OPENZCA_HOME, "profiles", profile);
+            try {
+                if (fs.existsSync(profileDir)) {
+                    fs.rmSync(profileDir, { recursive: true, force: true });
+                }
+            } catch (_) { }
+        }
+
+        // Cấp profile mới hoàn toàn cho session này
+        req.session.profile = `p-${crypto.randomBytes(8).toString("hex")}`;
+
+        res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -365,9 +528,9 @@ app.get("/api/leave-stream", async (req, res) => {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-    const minDelay = parseInt(req.query.minDelay, 10) || 2000;
-    const maxDelay = parseInt(req.query.maxDelay, 10) || 4000;
     const dryRun = req.query.dryRun === "1";
+    const silent = req.query.silent === "1";
+    const LEAVE_DELAY_MS = 1500;
 
     res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -376,19 +539,35 @@ app.get("/api/leave-stream", async (req, res) => {
     });
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    for (const groupId of groupIds) {
+    let api = null;
+    try {
+        api = await getZcaApi(profile);
+    } catch (_) { }
+
+    for (let i = 0; i < groupIds.length; i++) {
+        const groupId = groupIds[i];
         if (dryRun) {
-            send({ groupId, status: "dry-run" });
+            send({ groupId, status: "dry-run", silent });
         } else {
             try {
-                await runOpenzca(["group", "leave", groupId], profile);
-                send({ groupId, status: "ok" });
+                if (api) {
+                    await api.leaveGroup(groupId, silent);
+                } else {
+                    await runOpenzca(["group", "leave", groupId], profile);
+                }
+                send({ groupId, status: "ok", silent });
+                const cache = groupCacheMap.get(profile);
+                if (cache) {
+                    if (cache.ids) cache.ids = cache.ids.filter((id) => id !== groupId);
+                    cache.details.delete(groupId);
+                }
             } catch (err) {
-                send({ groupId, status: "error", message: err.message });
+                send({ groupId, status: "error", message: err.message, silent });
             }
         }
-        const delay = Math.floor(minDelay + Math.random() * (maxDelay - minDelay));
-        await new Promise((r) => setTimeout(r, delay));
+        if (i < groupIds.length - 1) {
+            await new Promise((r) => setTimeout(r, LEAVE_DELAY_MS));
+        }
     }
 
     send({ done: true });

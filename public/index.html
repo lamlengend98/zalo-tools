@@ -26,8 +26,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         body {
@@ -117,18 +122,34 @@
             margin-bottom: 16px;
         }
 
-        .toolbar input[type="text"] {
+        .toolbar input[type="text"],
+        .toolbar input[type="number"],
+        .toolbar select {
             background: var(--panel);
             border: 1px solid var(--border);
             color: var(--text);
             padding: 8px 12px;
             border-radius: 6px;
             font-size: 13px;
+        }
+
+        .toolbar input[type="text"] {
             flex: 1;
             min-width: 160px;
         }
 
-        .toolbar input[type="text"]:focus {
+        .toolbar select {
+            cursor: pointer;
+            min-width: 155px;
+        }
+
+        .toolbar input[type="number"] {
+            width: 85px;
+        }
+
+        .toolbar input[type="text"]:focus,
+        .toolbar input[type="number"]:focus,
+        .toolbar select:focus {
             outline: none;
             border-color: var(--amber-dim);
         }
@@ -237,36 +258,7 @@
             margin-top: 2px;
         }
 
-        .tags-row {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
 
-        .tag-chip {
-            font-family: var(--mono);
-            font-size: 10.5px;
-            background: #241c0c;
-            color: var(--amber);
-            border: 1px solid #3a2c10;
-            padding: 1px 7px;
-            border-radius: 10px;
-        }
-
-        .tag-edit-btn {
-            font-size: 11px;
-            color: var(--text-dim);
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 2px 6px;
-            flex-shrink: 0;
-        }
-
-        .tag-edit-btn:hover {
-            color: var(--amber);
-        }
 
         .empty-state {
             padding: 40px 20px;
@@ -299,25 +291,7 @@
             flex: 1;
         }
 
-        .delay-fields {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11.5px;
-            color: var(--text-dim);
-            font-family: var(--mono);
-        }
 
-        .delay-fields input {
-            width: 56px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 4px 6px;
-            border-radius: 4px;
-            font-family: var(--mono);
-            font-size: 11.5px;
-        }
 
         label.checkbox-label {
             display: flex;
@@ -443,6 +417,50 @@
         .log-line.info {
             color: var(--amber);
         }
+
+        /* ---- Phân trang ---- */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .pagination button {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            font-size: 12px;
+            font-family: var(--mono);
+            border-radius: 6px;
+        }
+
+        .pagination button.active {
+            background: var(--amber);
+            border-color: var(--amber);
+            color: #1b1305;
+            font-weight: 700;
+        }
+
+        .pagination .pg-info {
+            font-family: var(--mono);
+            font-size: 11.5px;
+            color: var(--text-dim);
+            padding: 0 6px;
+        }
+
+        .limit-select {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-family: var(--mono);
+            cursor: pointer;
+        }
     </style>
 </head>
 
@@ -465,26 +483,34 @@
     <main>
         <div class="toolbar">
             <input type="text" id="nameFilter" placeholder="Lọc theo tên nhóm..." />
-            <input type="text" id="tagFilter" placeholder="Lọc theo tag (vd: rác, spam)..." />
+            <select id="memberFilter" title="Chọn số thành viên để lọc">
+                <option value="">Tất cả số thành viên</option>
+            </select>
+            <input type="number" id="memberFilterInput" placeholder="Số TV..." min="1"
+                title="Nhập số thành viên cụ thể" />
             <button id="selectAllBtn" class="ghost">Chọn tất cả</button>
             <button id="deselectAllBtn" class="ghost">Bỏ chọn</button>
         </div>
 
         <div class="status-line" id="statusLine">Đang kiểm tra đăng nhập...</div>
-        <div class="status-line" style="margin-top: -10px;">Mẹo: giữ Shift rồi click để chọn nhiều nhóm liên tiếp.</div>
+        <div class="status-line" style="margin-top: -10px; display:flex; align-items:center; gap:8px;">
+            <span>Mẹo: giữ Shift rồi click để chọn nhiều nhóm liên tiếp.</span>
+            <button id="refreshGroupsBtn" class="ghost" style="font-size:11px; padding:3px 8px;"
+                title="Làm mới danh sách từ Zalo">🔄 Làm mới</button>
+        </div>
 
         <div class="group-list" id="groupList"></div>
+
+        <div class="pagination" id="paginationBar" style="display:none;"></div>
 
         <div class="action-bar">
             <span class="count" id="selectedCount">0 nhóm được chọn</span>
             <div class="spacer"></div>
-            <div class="delay-fields">
-                <span>delay</span>
-                <input type="number" id="minDelay" value="2000" />
-                <span>–</span>
-                <input type="number" id="maxDelay" value="4000" />
-                <span>ms</span>
-            </div>
+
+            <label class="checkbox-label" title="Rời nhóm trong im lặng (không gửi thông báo đã rời vào nhóm)">
+                <input type="checkbox" id="silentLeaveCheckbox" checked />
+                rời trong im lặng
+            </label>
             <label class="checkbox-label">
                 <input type="checkbox" id="dryRunCheckbox" />
                 dry-run
@@ -501,34 +527,28 @@
         </div>
     </main>
 
-    <div class="modal-overlay" id="tagModalOverlay">
-        <div class="modal">
-            <h3 id="tagModalTitle">Gán tag</h3>
-            <div class="modal-sub" id="tagModalGroupName"></div>
-            <input type="text" id="tagModalInput" placeholder="tag1, tag2, ..." />
-            <div class="modal-actions">
-                <button class="ghost" id="tagModalCancel">Huỷ</button>
-                <button class="primary" id="tagModalSave">Lưu</button>
-            </div>
-        </div>
-    </div>
+
 
     <div class="modal-overlay" id="loginModalOverlay">
         <div class="modal modal-wide">
             <h3>Đăng nhập Zalo</h3>
             <div class="modal-sub">Quét mã QR hiện bên dưới bằng app Zalo trên điện thoại.</div>
-            
-            <div id="qrLoadingState" style="text-align: center; margin: 18px 0; color: var(--amber); font-family: var(--mono); font-size: 13px;">
-                <div style="display: inline-block; width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--amber); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px;"></div>
-                <span>Đang tạo mã QR đăng nhập... Vui lòng đợi trong giây lát.</span>
+
+            <div id="qrLoadingState"
+                style="text-align: center; margin: 18px 0; color: var(--amber); font-family: var(--mono); font-size: 13px;">
+                <div
+                    style="display: inline-block; width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--amber); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px;">
+                </div>
+                <span id="qrLoadingText">Đang tạo mã QR đăng nhập... Vui lòng đợi trong giây lát.</span>
             </div>
 
             <div id="qrImageContainer" style="text-align: center; margin: 16px 0; display: none;">
-                <img id="qrImage" src="" alt="Mã QR Zalo" style="width: 220px; height: 220px; border-radius: 12px; border: 3px solid #e8a33d; background: #ffffff; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);" />
+                <img id="qrImage" src="" alt="Mã QR Zalo"
+                    style="width: 220px; height: 220px; border-radius: 12px; border: 3px solid #e8a33d; background: #ffffff; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);" />
             </div>
-            
+
             <div class="login-log" id="loginLog">Đang khởi động...</div>
-            
+
             <div class="modal-actions" style="display: flex; gap: 8px; justify-content: flex-end;">
                 <button class="primary" id="reloadQrBtn">🔄 Tải lại QR</button>
                 <button class="ghost" id="loginModalClose">Đóng</button>
@@ -538,30 +558,28 @@
 
     <script>
         const state = {
-            groups: [],
+            groups: [],       // nhóm trên trang hiện tại
             selected: new Set(),
-            tagModalGroupId: null,
             lastClickedId: null,
+            pagination: { page: 1, limit: 20, totalItems: 0, totalPages: 1, hasNext: false, hasPrev: false },
         };
 
         const el = {
             statusLine: document.getElementById("statusLine"),
             groupList: document.getElementById("groupList"),
+            paginationBar: document.getElementById("paginationBar"),
+            refreshGroupsBtn: document.getElementById("refreshGroupsBtn"),
             nameFilter: document.getElementById("nameFilter"),
-            tagFilter: document.getElementById("tagFilter"),
+            memberFilter: document.getElementById("memberFilter"),
+            memberFilterInput: document.getElementById("memberFilterInput"),
             selectedCount: document.getElementById("selectedCount"),
             leaveBtn: document.getElementById("leaveBtn"),
-            minDelay: document.getElementById("minDelay"),
-            maxDelay: document.getElementById("maxDelay"),
+
+            silentLeaveCheckbox: document.getElementById("silentLeaveCheckbox"),
             dryRunCheckbox: document.getElementById("dryRunCheckbox"),
             logPanel: document.getElementById("logPanel"),
             logLines: document.getElementById("logLines"),
             logSummary: document.getElementById("logSummary"),
-            tagModalOverlay: document.getElementById("tagModalOverlay"),
-            tagModalGroupName: document.getElementById("tagModalGroupName"),
-            tagModalInput: document.getElementById("tagModalInput"),
-            tagModalSave: document.getElementById("tagModalSave"),
-            tagModalCancel: document.getElementById("tagModalCancel"),
             selectAllBtn: document.getElementById("selectAllBtn"),
             deselectAllBtn: document.getElementById("deselectAllBtn"),
             authDot: document.getElementById("authDot"),
@@ -574,36 +592,143 @@
             qrImageContainer: document.getElementById("qrImageContainer"),
             qrImage: document.getElementById("qrImage"),
             qrLoadingState: document.getElementById("qrLoadingState"),
+            qrLoadingText: document.getElementById("qrLoadingText"),
             reloadQrBtn: document.getElementById("reloadQrBtn"),
         };
 
-        async function loadGroups() {
+        async function loadGroups(page) {
             el.statusLine.textContent = "Đang tải danh sách nhóm...";
             el.statusLine.classList.remove("error");
+            const targetPage = page || state.pagination.page || 1;
+            const limit = state.pagination.limit || 20;
             try {
-                const res = await fetch("/api/groups");
+                const params = new URLSearchParams({ page: targetPage, limit });
+                const res = await fetch(`/api/groups?${params.toString()}`);
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
                 state.groups = data.groups;
-                state.selected.clear();
-                el.statusLine.textContent = `${data.groups.length} nhóm.`;
+                state.pagination = data.pagination;
+                updateMemberSelectOptions();
+                const meta = data.meta || {};
+                const cached = meta.cachedDetails ?? null;
+                const total = meta.totalIds ?? data.pagination.totalItems;
+                const cacheNote = cached !== null && cached < total
+                    ? ` · cache ${cached}/${total}`
+                    : "";
+                el.statusLine.textContent =
+                    `Trang ${data.pagination.page}/${data.pagination.totalPages} · ${data.pagination.totalItems} nhóm${cacheNote}.`;
                 render();
             } catch (err) {
                 el.statusLine.textContent = `Chưa có dữ liệu — hãy bấm "Quét QR đăng nhập Zalo" ở góc trên trước.`;
                 el.statusLine.classList.add("error");
                 el.groupList.innerHTML = "";
+                el.paginationBar.style.display = "none";
+            }
+        }
+
+        async function goToPage(page) {
+            if (page < 1 || page > state.pagination.totalPages) return;
+            state.pagination.page = page;
+            await loadGroups(page);
+        }
+
+        // Nút làm mới: xóa cache server rồi tải lại từ đầu
+        el.refreshGroupsBtn.addEventListener("click", async () => {
+            el.refreshGroupsBtn.disabled = true;
+            el.refreshGroupsBtn.textContent = "🔄 Đang làm mới...";
+            try {
+                await fetch("/api/groups/refresh", { method: "POST" });
+                await loadGroups(1);
+            } catch (err) {
+                alert(`Lỗi khi làm mới: ${err.message}`);
+            } finally {
+                el.refreshGroupsBtn.disabled = false;
+                el.refreshGroupsBtn.textContent = "🔄 Làm mới";
+            }
+        });
+
+        function updateMemberSelectOptions() {
+            const currentVal = el.memberFilterInput.value || el.memberFilter.value;
+            const countsMap = new Map();
+            for (const g of state.groups) {
+                if (g.memberCount !== null && g.memberCount !== undefined) {
+                    countsMap.set(g.memberCount, (countsMap.get(g.memberCount) || 0) + 1);
+                }
+            }
+            const sortedCounts = Array.from(countsMap.keys()).sort((a, b) => a - b);
+            let html = `<option value="">Tất cả số thành viên</option>`;
+            for (const count of sortedCounts) {
+                const qty = countsMap.get(count);
+                html += `<option value="${count}">${count} thành viên (${qty})</option>`;
+            }
+            el.memberFilter.innerHTML = html;
+            if (currentVal) {
+                if (countsMap.has(Number(currentVal))) {
+                    el.memberFilter.value = currentVal;
+                } else {
+                    const opt = document.createElement("option");
+                    opt.value = currentVal;
+                    opt.textContent = `${currentVal} thành viên`;
+                    opt.selected = true;
+                    el.memberFilter.appendChild(opt);
+                }
             }
         }
 
         function getFiltered() {
             const nameKw = el.nameFilter.value.trim().toLowerCase();
-            const tagKw = el.tagFilter.value.trim().toLowerCase();
-            const tagList = tagKw.split(",").map((t) => t.trim()).filter(Boolean);
+            const memberVal = (el.memberFilterInput.value || el.memberFilter.value).trim();
+            const memberCount = memberVal !== "" ? parseInt(memberVal, 10) : null;
 
+            // Lọc trong danh sách nhóm trang hiện tại
             return state.groups.filter((g) => {
                 const nameOk = !nameKw || g.name.toLowerCase().includes(nameKw);
-                const tagOk = tagList.length === 0 || tagList.some((t) => g.tags.includes(t));
-                return nameOk && tagOk;
+                const memberOk = memberCount === null || (g.memberCount !== null && g.memberCount === memberCount);
+                return nameOk && memberOk;
+            });
+        }
+
+        function renderPagination() {
+            const pg = state.pagination;
+            if (!pg || pg.totalPages <= 1) {
+                el.paginationBar.style.display = "none";
+                return;
+            }
+            el.paginationBar.style.display = "flex";
+
+            // Tạo dãy số trang hiển thị (window ±2 quanh trang hiện tại)
+            const pages = [];
+            for (let p = 1; p <= pg.totalPages; p++) {
+                if (p === 1 || p === pg.totalPages || Math.abs(p - pg.page) <= 2) {
+                    pages.push(p);
+                } else if (pages[pages.length - 1] !== "…") {
+                    pages.push("…");
+                }
+            }
+
+            const limitOpts = [10, 20, 50, 100].map(
+                (n) => `<option value="${n}" ${pg.limit === n ? "selected" : ""}>${n} / trang</option>`
+            ).join("");
+
+            el.paginationBar.innerHTML = `
+                <button id="pgPrev" ${!pg.hasPrev ? "disabled" : ""}>&lsaquo; Trước</button>
+                ${pages.map((p) =>
+                p === "…"
+                    ? `<span class="pg-info">…</span>`
+                    : `<button class="pg-btn ${p === pg.page ? "active" : ""}" data-page="${p}">${p}</button>`
+            ).join("")}
+                <button id="pgNext" ${!pg.hasNext ? "disabled" : ""}>Sau &rsaquo;</button>
+                <select class="limit-select" id="pgLimit">${limitOpts}</select>
+            `;
+
+            document.getElementById("pgPrev")?.addEventListener("click", () => goToPage(pg.page - 1));
+            document.getElementById("pgNext")?.addEventListener("click", () => goToPage(pg.page + 1));
+            el.paginationBar.querySelectorAll(".pg-btn").forEach((btn) => {
+                btn.addEventListener("click", () => goToPage(parseInt(btn.dataset.page, 10)));
+            });
+            document.getElementById("pgLimit")?.addEventListener("change", (e) => {
+                state.pagination.limit = parseInt(e.target.value, 10);
+                goToPage(1);
             });
         }
 
@@ -616,24 +741,20 @@
                     .map((g) => {
                         const isSelected = state.selected.has(g.id);
                         const memberInfo = g.memberCount ? `${g.memberCount} thành viên · ` : "";
-                        const tagsHtml = g.tags.length
-                            ? `<div class="tags-row">${g.tags.map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`).join("")}</div>`
-                            : "";
                         return `
             <div class="group-row ${isSelected ? "selected" : ""}" data-id="${g.id}">
               <input type="checkbox" data-role="select" ${isSelected ? "checked" : ""} />
               <div class="group-main">
                 <div class="group-name">${escapeHtml(g.name)}</div>
                 <div class="group-meta">${memberInfo}id: ${g.id}</div>
-                ${tagsHtml}
               </div>
-              <button class="tag-edit-btn" data-role="edit-tag">+ tag</button>
             </div>
           `;
                     })
                     .join("");
             }
             updateSelectedCount();
+            renderPagination();
         }
 
         function escapeHtml(str) {
@@ -652,11 +773,6 @@
             const row = e.target.closest(".group-row");
             if (!row) return;
             const groupId = row.dataset.id;
-
-            if (e.target.dataset.role === "edit-tag") {
-                openTagModal(groupId);
-                return;
-            }
 
             const isCheckboxClick = e.target.dataset.role === "select";
 
@@ -692,6 +808,7 @@
         }
 
         function selectAllFiltered() {
+            // Chọn tất cả nhóm trong trang hiện tại (sau bộ lọc)
             const ids = getFiltered().map((g) => g.id);
             ids.forEach((id) => state.selected.add(id));
             render();
@@ -727,48 +844,34 @@
             updateSelectedCount();
         }
 
+        // Khi lọc: re-render tức thì trong trang hiện tại (nhanh)
+        // và không cần reload server vì tất cả groups trong trang đều đã có ở client.
         el.nameFilter.addEventListener("input", render);
-        el.tagFilter.addEventListener("input", render);
-
-        function openTagModal(groupId) {
-            const g = state.groups.find((x) => x.id === groupId);
-            state.tagModalGroupId = groupId;
-            el.tagModalGroupName.textContent = g ? `${g.name} (id: ${g.id})` : groupId;
-            el.tagModalInput.value = g && g.tags.length ? g.tags.join(", ") : "";
-            el.tagModalOverlay.classList.add("open");
-            el.tagModalInput.focus();
-        }
-
-        function closeTagModal() {
-            el.tagModalOverlay.classList.remove("open");
-            state.tagModalGroupId = null;
-        }
-
-        el.tagModalCancel.addEventListener("click", closeTagModal);
-        el.tagModalOverlay.addEventListener("click", (e) => {
-            if (e.target === el.tagModalOverlay) closeTagModal();
+        el.memberFilter.addEventListener("change", () => {
+            el.memberFilterInput.value = el.memberFilter.value;
+            render();
         });
-
-        el.tagModalSave.addEventListener("click", async () => {
-            const groupId = state.tagModalGroupId;
-            if (!groupId) return;
-            const tagList = el.tagModalInput.value.split(",").map((t) => t.trim()).filter(Boolean);
-            try {
-                const res = await fetch("/api/tags", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ groupId, tags: tagList, action: "set" }),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Lỗi không xác định");
-                const g = state.groups.find((x) => x.id === groupId);
-                if (g) g.tags = data.tags;
-                closeTagModal();
-                render();
-            } catch (err) {
-                alert(`Lỗi khi lưu tag: ${err.message}`);
+        el.memberFilterInput.addEventListener("input", () => {
+            const val = el.memberFilterInput.value.trim();
+            if (!val) {
+                el.memberFilter.value = "";
+            } else {
+                let match = false;
+                for (let i = 0; i < el.memberFilter.options.length; i++) {
+                    if (el.memberFilter.options[i].value === val) {
+                        el.memberFilter.selectedIndex = i;
+                        match = true;
+                        break;
+                    }
+                }
+                if (!match) {
+                    el.memberFilter.value = "";
+                }
             }
+            render();
         });
+
+
 
         el.leaveBtn.addEventListener("click", () => {
             const ids = [...state.selected];
@@ -780,15 +883,17 @@
             });
 
             const dryRun = el.dryRunCheckbox.checked;
+            const silent = el.silentLeaveCheckbox ? el.silentLeaveCheckbox.checked : true;
+            const silentNote = silent ? " (trong im lặng)" : "";
             const confirmMsg = dryRun
-                ? `Xem trước (dry-run) việc rời ${ids.length} nhóm?`
-                : `Xác nhận rời ${ids.length} nhóm sau?\n\n${names.join("\n")}`;
+                ? `Xem trước (dry-run) việc rời ${ids.length} nhóm${silentNote}?`
+                : `Xác nhận rời ${ids.length} nhóm sau${silentNote}?\n\n${names.join("\n")}`;
 
             if (!confirm(confirmMsg)) return;
-            startLeaveStream(ids, dryRun);
+            startLeaveStream(ids, dryRun, silent);
         });
 
-        function startLeaveStream(ids, dryRun) {
+        function startLeaveStream(ids, dryRun, silent) {
             el.logPanel.classList.add("open");
             el.logLines.innerHTML = "";
             el.logSummary.textContent = `0 / ${ids.length}`;
@@ -796,9 +901,8 @@
 
             const params = new URLSearchParams({
                 groupIds: ids.join(","),
-                minDelay: el.minDelay.value || "2000",
-                maxDelay: el.maxDelay.value || "4000",
                 dryRun: dryRun ? "1" : "0",
+                silent: silent ? "1" : "0",
             });
 
             const es = new EventSource(`/api/leave-stream?${params.toString()}`);
@@ -810,7 +914,7 @@
                     appendLog("info", "Hoàn tất.");
                     es.close();
                     el.leaveBtn.disabled = state.selected.size === 0;
-                    loadGroups();
+                    loadGroups(1); // Sau khi rời nhóm, về trang 1 để tải lại
                     return;
                 }
                 const g = state.groups.find((x) => x.id === data.groupId);
@@ -818,11 +922,12 @@
                 done += 1;
                 el.logSummary.textContent = `${done} / ${ids.length}`;
 
+                const silentTag = data.silent ? " [im lặng]" : "";
                 if (data.status === "ok") {
-                    appendLog("ok", `✔ Đã rời: ${label} (${data.groupId})`);
+                    appendLog("ok", `✔ Đã rời${silentTag}: ${label} (${data.groupId})`);
                     state.selected.delete(data.groupId);
                 } else if (data.status === "dry-run") {
-                    appendLog("dry", `[dry-run] Sẽ rời: ${label} (${data.groupId})`);
+                    appendLog("dry", `[dry-run] Sẽ rời${silentTag}: ${label} (${data.groupId})`);
                 } else if (data.status === "error") {
                     appendLog("error", `✘ Lỗi khi rời ${label} (${data.groupId}): ${data.message}`);
                 }
@@ -869,14 +974,20 @@
         el.loginBtn.addEventListener("click", startLogin);
 
         let activeLoginEventSource = null;
+        let syncTimer = null;
 
         function startLogin() {
             if (activeLoginEventSource) {
                 activeLoginEventSource.close();
                 activeLoginEventSource = null;
             }
+            if (syncTimer) {
+                clearInterval(syncTimer);
+                syncTimer = null;
+            }
 
             el.loginLog.textContent = "Đang tạo tiến trình đăng nhập...\n";
+            if (el.qrLoadingText) el.qrLoadingText.textContent = "Đang tạo mã QR đăng nhập... Vui lòng đợi trong giây lát.";
             if (el.qrLoadingState) el.qrLoadingState.style.display = "block";
             if (el.qrImageContainer) el.qrImageContainer.style.display = "none";
             if (el.qrImage) el.qrImage.src = "";
@@ -884,6 +995,7 @@
 
             const es = new EventSource("/api/auth/login-stream");
             activeLoginEventSource = es;
+            let loginApproved = false;
 
             es.onmessage = (evt) => {
                 const data = JSON.parse(evt.data);
@@ -896,22 +1008,67 @@
                 }
                 if (data.line) {
                     el.loginLog.textContent += data.line;
+
+                    // Nhận diện khi đã xác nhận đăng nhập thành công trên điện thoại
+                    if (!loginApproved && /Logged in/i.test(data.line)) {
+                        loginApproved = true;
+                        if (el.qrImageContainer) el.qrImageContainer.style.display = "none";
+                        if (el.qrLoadingState) {
+                            if (el.qrLoadingText) el.qrLoadingText.textContent = "Đã xác thực! Đang đồng bộ danh sách nhóm từ Zalo...";
+                            el.qrLoadingState.style.display = "block";
+                        }
+                        el.loginLog.textContent += "\n----------------------------------------\n" +
+                            "✔ Đã xác nhận đăng nhập thành công trên điện thoại!\n" +
+                            "⏳ Đang đồng bộ thông tin tài khoản và danh sách nhóm từ Zalo...\n" +
+                            "ℹ️ Nếu tài khoản có nhiều nhóm (hàng trăm hoặc 1000 nhóm), quá trình đồng bộ lần đầu này có thể mất 15–45 giây. Hệ thống vẫn đang chạy, vui lòng không đóng cửa sổ...\n";
+
+                        let syncSeconds = 0;
+                        syncTimer = setInterval(() => {
+                            syncSeconds += 5;
+                            el.loginLog.textContent += `⏳ Vẫn đang đồng bộ dữ liệu nhóm từ Zalo... (đã qua ${syncSeconds}s)\n`;
+                            el.loginLog.scrollTop = el.loginLog.scrollHeight;
+                        }, 5000);
+                    }
+
+                    if (/Cache refreshed/i.test(data.line)) {
+                        if (syncTimer) {
+                            clearInterval(syncTimer);
+                            syncTimer = null;
+                        }
+                        el.loginLog.textContent += "\n✔ Đã đồng bộ xong dữ liệu nhóm từ Zalo!\n";
+                    }
+
                     el.loginLog.scrollTop = el.loginLog.scrollHeight;
                 }
                 if (data.done) {
+                    if (syncTimer) {
+                        clearInterval(syncTimer);
+                        syncTimer = null;
+                    }
                     es.close();
                     activeLoginEventSource = null;
                     if (el.qrLoadingState) el.qrLoadingState.style.display = "none";
-                    el.loginLog.textContent += data.success
-                        ? "\n\n✔ Đăng nhập thành công."
-                        : "\n\n✘ Đăng nhập không thành công hoặc đã bị huỷ.";
-                    el.loginLog.scrollTop = el.loginLog.scrollHeight;
-                    checkAuthStatus();
-                    if (data.success) loadGroups();
+                    if (data.success) {
+                        el.loginLog.textContent += "\n✔ Đăng nhập & đồng bộ hoàn tất!\nĐang tải danh sách nhóm... (Cửa sổ tự đóng sau 2 giây)\n";
+                        el.loginLog.scrollTop = el.loginLog.scrollHeight;
+                        checkAuthStatus();
+                        loadGroups();
+                        setTimeout(() => {
+                            el.loginModalOverlay.classList.remove("open");
+                        }, 2000);
+                    } else {
+                        el.loginLog.textContent += "\n✘ Đăng nhập không thành công hoặc đã bị huỷ.";
+                        el.loginLog.scrollTop = el.loginLog.scrollHeight;
+                        checkAuthStatus();
+                    }
                 }
             };
 
             es.onerror = () => {
+                if (syncTimer) {
+                    clearInterval(syncTimer);
+                    syncTimer = null;
+                }
                 if (el.qrLoadingState) el.qrLoadingState.style.display = "none";
                 el.loginLog.textContent += "\n\n⚠️ Mất kết nối stream đăng nhập. Nhấn nút 'Tải lại QR' ở bên dưới để tạo lại mã mới.";
                 el.loginLog.scrollTop = el.loginLog.scrollHeight;
@@ -931,10 +1088,20 @@
                 activeLoginEventSource.close();
                 activeLoginEventSource = null;
             }
+            if (syncTimer) {
+                clearInterval(syncTimer);
+                syncTimer = null;
+            }
             el.loginModalOverlay.classList.remove("open");
         });
         el.loginModalOverlay.addEventListener("click", (e) => {
-            if (e.target === el.loginModalOverlay) el.loginModalOverlay.classList.remove("open");
+            if (e.target === el.loginModalOverlay) {
+                if (syncTimer) {
+                    clearInterval(syncTimer);
+                    syncTimer = null;
+                }
+                el.loginModalOverlay.classList.remove("open");
+            }
         });
 
         el.logoutBtn.addEventListener("click", async () => {
@@ -946,8 +1113,12 @@
                 setAuthUI(false);
                 state.groups = [];
                 state.selected.clear();
+                state.pagination = { page: 1, limit: 20, totalItems: 0, totalPages: 1, hasNext: false, hasPrev: false };
+                updateMemberSelectOptions();
                 render();
-                el.statusLine.textContent = "Đã đăng xuất Zalo.";
+                el.groupList.innerHTML = "";
+                el.paginationBar.style.display = "none";
+                el.statusLine.textContent = "Đã đăng xuất Zalo và xóa sạch dữ liệu cache.";
             } catch (err) {
                 alert(`Lỗi khi đăng xuất: ${err.message}`);
             }
